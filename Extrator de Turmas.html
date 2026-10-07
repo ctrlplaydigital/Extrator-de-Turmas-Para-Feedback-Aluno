@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Extrator de Turmas</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#667085;--bd:#d9dde3;--ac:#2563eb;--ok:#16a34a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--card:#1d2026;--tx:#eceff3;--mut:#9aa3b0;--bd:#343a44;--ac:#5b8cff;--ok:#4ade80}}
+:root[data-theme="dark"]{--bg:#14161a;--card:#1d2026;--tx:#eceff3;--mut:#9aa3b0;--bd:#343a44;--ac:#5b8cff;--ok:#4ade80}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:900px;margin:0 auto;padding:20px 16px;display:grid;gap:16px}
+h1{font-size:1.4rem;margin:0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+label.t{font-weight:600;display:block;margin-bottom:8px}
+textarea{width:100%;box-sizing:border-box;min-height:150px;border:1px solid var(--bd);border-radius:8px;padding:10px;background:var(--bg);color:var(--tx);font:13px/1.4 ui-monospace,Menlo,monospace;resize:vertical}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+button{border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:9px 14px;border-radius:8px;font-size:15px;cursor:pointer}
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+button.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.chk label{margin-right:12px;white-space:nowrap}
+.mut{color:var(--mut);font-size:14px}
+#out{min-height:120px;max-height:420px;overflow:auto;white-space:pre-wrap;font:14px/1.6 ui-monospace,Menlo,monospace}
+</style>
+</head>
+<body>
+<main>
+<h1>Extrator de Turmas</h1>
+
+<div class="card">
+  <label class="t" for="html">1. Cole o HTML (ou a &lt;ul&gt;) aqui</label>
+  <textarea id="html" placeholder="Cole o código HTML..."></textarea>
+  <div class="row chk"><span class="mut">Aulas aceitas:</span>
+    <label><input type="checkbox" value="6" checked> Aula 6</label>
+    <label><input type="checkbox" value="12" checked> Aula 12</label>
+    <label><input type="checkbox" value="18" checked> Aula 18</label>
+    <label><input type="checkbox" value="extra" checked> Aula extra</label>
+  </div>
+  <div class="row">
+    <button class="p" id="add">Adicionar à lista</button>
+    <button id="clearIn">Limpar campo de código</button>
+  </div>
+  <div class="mut" id="msg" style="margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <label class="t">2. Lista de turmas (<span id="n">0</span>)</label>
+  <div id="out"></div>
+  <div class="row">
+    <button class="ok" id="copy">Copiar lista</button>
+    <button id="clear">Limpar turmas</button>
+  </div>
+</div>
+
+<div class="card">
+  <label class="t">3. Mensagem para os professores</label>
+  <div id="prev" style="white-space:pre-wrap;border:1px solid var(--bd);border-radius:8px;padding:12px;background:var(--bg);max-height:420px;overflow:auto"></div>
+  <div class="row">
+    <button class="ok" id="copyMsg">Copiar mensagem</button>
+    <button id="editBtn">Editar mensagem</button>
+  </div>
+  <div id="editBox" hidden style="margin-top:14px">
+    <div class="mut" style="margin-bottom:8px">Edite o modelo. <b>{{TURMAS}}</b> é substituído pela lista de turmas.</div>
+    <textarea id="tpl" style="min-height:230px;font-family:inherit;font-size:15px"></textarea>
+    <div class="row">
+      <button class="p" id="doneBtn">Concluir</button>
+      <button id="reset">Restaurar modelo padrão</button>
+    </div>
+  </div>
+</div>
+</main>
+<script>
+const KEY="turmas_lista";
+let list=[];
+try{list=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){}
+const $=id=>document.getElementById(id);
+const teacher=e=>{const i=e.lastIndexOf("/");return i<0?"(sem professor)":e.slice(i+1).trim()};
+const noTeacher=e=>{const i=e.lastIndexOf("/");return i<0?e:e.slice(0,i).trim()};
+const col=new Intl.Collator("pt-BR",{sensitivity:"base",numeric:true});
+function sortList(){list.sort((a,b)=>col.compare(teacher(a),teacher(b))||col.compare(a,b))}
+sortList();
+function save(){try{localStorage.setItem(KEY,JSON.stringify(list))}catch(e){}}
+function render(){$("out").textContent=list.join("\n");$("n").textContent=list.length}
+function allowed(){return [...document.querySelectorAll(".chk input:checked")].map(i=>i.value)}
+
+function extract(raw){
+  const doc=new DOMParser().parseFromString(raw,"text/html");
+  const ok=allowed(), found=[];
+  const norm=t=>t.replace(/\s+/g," ").trim();
+  const num=v=>/^\d+$/.test(v)?String(parseInt(v,10)):v.toLowerCase();
+  const cards=[...doc.querySelectorAll("li")].filter(li=>li.querySelector('[data-testid="lessonLink"]')&&li.querySelector('[data-testid="klassLink"]'));
+  for(const li of cards){
+    const aula=norm(li.querySelector('[data-testid="lessonLink"]').textContent);
+    const m=aula.match(/^aula\s*(extra|\d+)/i);
+    if(!m||!ok.includes(num(m[1]))) continue;
+    const turma=norm(li.querySelector('[data-testid="klassLink"]').textContent);
+    if(turma){const n=num(m[1]);found.push((n==="extra"?"Aula extra":"Aula "+n)+" - "+turma);}
+  }
+  return found;
+}
+
+$("add").onclick=()=>{
+  const raw=$("html").value;
+  if(!raw.trim()){$("msg").textContent="Cole algum código primeiro.";return}
+  const found=extract(raw); let novos=0;
+  for(const t of found) if(!list.includes(t)){list.push(t);novos++}
+  sortList();save();render();
+  $("msg").textContent=`${found.length} encontradas, ${novos} novas adicionadas. Pode colar o próximo código.`;
+  $("html").value="";
+};
+$("clearIn").onclick=()=>{$("html").value="";$("msg").textContent=""};
+let armed=null;
+$("clear").onclick=()=>{
+  const b=$("clear");
+  if(!list.length){$("msg").textContent="A lista já está vazia.";return}
+  if(!armed){b.textContent="Clique de novo para confirmar";armed=setTimeout(()=>{armed=null;b.textContent="Limpar turmas"},3000);return}
+  clearTimeout(armed);armed=null;b.textContent="Limpar turmas";
+  list=[];save();render();$("msg").textContent="Lista limpa.";
+};
+$("copy").onclick=async()=>{
+  const txt=list.join("\n"); const b=$("copy");
+  try{await navigator.clipboard.writeText(txt)}catch(e){
+    const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove()}
+  b.textContent="Copiado!";setTimeout(()=>b.textContent="Copiar lista",1500);
+};
+const TPL_KEY="turmas_modelo";
+const DEFAULT_TPL=`Fala, pessoal! 😊
+
+Segue a lista de turmas que estão nas aulas de atualização de feedback dos alunos. Por favor, preencham os feedbacks no link abaixo e, depois, enviem pelo portal, como combinado.
+
+Link do gerador de feedback: https://ctrlplaydigital.github.io/Sistema-de-Feedback-do-Aluno/
+
+Lista de turmas:
+
+{{TURMAS}}
+
+Obrigado desde já! 🚀`;
+let tpl=DEFAULT_TPL;
+try{tpl=localStorage.getItem(TPL_KEY)||DEFAULT_TPL}catch(e){}
+function groupedList(){
+  if(!list.length) return "(nenhuma turma na lista)";
+  const g=new Map();
+  for(const e of list){const t=teacher(e);if(!g.has(t))g.set(t,[]);g.get(t).push(e.replace(/^Aula\s+\d+\s+-\s+/i,""))}
+  return [...g].map(([t,items])=>"*"+t+"*\n"+items.join("\n")).join("\n\n");
+}
+function message(){return tpl.split("{{TURMAS}}").join(groupedList())}
+function preview(){$("prev").textContent=message()}
+$("tpl").value=tpl;
+$("tpl").oninput=()=>{tpl=$("tpl").value;try{localStorage.setItem(TPL_KEY,tpl)}catch(e){};preview()};
+$("reset").onclick=()=>{tpl=DEFAULT_TPL;$("tpl").value=tpl;try{localStorage.removeItem(TPL_KEY)}catch(e){};preview()};
+$("copyMsg").onclick=async()=>{
+  const txt=message(), b=$("copyMsg");
+  try{await navigator.clipboard.writeText(txt)}catch(e){
+    const ta=document.createElement("textarea");ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove()}
+  b.textContent="Copiado!";setTimeout(()=>b.textContent="Copiar mensagem",1500);
+};
+$("editBtn").onclick=()=>{$("editBox").hidden=false;$("editBtn").hidden=true;$("tpl").focus()};
+$("doneBtn").onclick=()=>{$("editBox").hidden=true;$("editBtn").hidden=false};
+const _render=render;
+render=function(){_render();preview()};
+render();
+</script>
+</body>
+</html>
